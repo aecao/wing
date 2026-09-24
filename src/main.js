@@ -38,8 +38,9 @@ const pointAssets = {
   H45: h45Url,
 }
 const pointNames = Object.keys(pointAssets)
-const state = { slider: 75 }
+const state = { leftSlider: 75, rightSlider: 75 }
 const rhinoFeetToMeters = 0.3048
+const showSecondWing = false
 
 function parsePointCsv(csvText) {
   const rows = new Map()
@@ -122,20 +123,24 @@ async function initializeModelViewport() {
   }
 
   const loader = new GLTFLoader()
-  const pointMarkers = new Map()
-  const components = new Map()
+  const wings = new Map()
   let loadedAssets = 0
-  const totalAssets = Object.keys(componentAssets).length + pointNames.length
+  const wingDefinitions = [
+    { id: 'left', label: 'Wing', sliderKey: 'leftSlider', positionX: showSecondWing ? -2.5 : 0, mirrored: false },
+    ...(showSecondWing ? [{ id: 'right', label: 'Right wing', sliderKey: 'rightSlider', positionX: 2.5, mirrored: true }] : []),
+  ]
+  const assetsPerWing = Object.keys(componentAssets).length + pointNames.length
+  const totalAssets = assetsPerWing * wingDefinitions.length
 
-  const updatePointMarkers = () => {
-    const activePoints = pointRows.get(state.slider)
+  const updateWing = (wing) => {
+    const activePoints = pointRows.get(state[wing.sliderKey])
     if (!activePoints) return
 
-    pointMarkers.forEach((marker, pointName) => {
+    wing.pointMarkers.forEach((marker, pointName) => {
       marker.position.copy(activePoints[pointName]).sub(referencePoints[pointName])
     })
 
-    components.forEach((component, componentName) => {
+    wing.components.forEach((component, componentName) => {
       const [startPointName, endPointName] = componentAssets[componentName].points
       const referenceStart = referencePoints[startPointName]
       const referenceEnd = referencePoints[endPointName]
@@ -150,7 +155,7 @@ async function initializeModelViewport() {
     })
   }
 
-  const loadAsset = (assetUrl, assetName, isPointMarker = false) => {
+  const loadWingAsset = (wing, assetUrl, assetName, isPointMarker = false) => {
     loader.load(
       assetUrl,
       (gltf) => {
@@ -160,10 +165,10 @@ async function initializeModelViewport() {
             node.receiveShadow = true
           }
         })
-        modelGroup.add(gltf.scene)
-        if (isPointMarker) pointMarkers.set(assetName, gltf.scene)
+        wing.root.add(gltf.scene)
+        if (isPointMarker) wing.pointMarkers.set(assetName, gltf.scene)
         else {
-          components.set(assetName, {
+          wing.components.set(assetName, {
             scene: gltf.scene,
             basePosition: gltf.scene.position.clone(),
             baseQuaternion: gltf.scene.quaternion.clone(),
@@ -172,9 +177,9 @@ async function initializeModelViewport() {
         loadedAssets += 1
         status.textContent = `Loaded ${loadedAssets} of ${totalAssets} GLB assets`
         if (loadedAssets === totalAssets) {
-          updatePointMarkers()
+          wings.forEach(updateWing)
           frameModel()
-          status.textContent = `Slider ${state.slider}: six components and nine point markers loaded`
+          status.textContent = showSecondWing ? 'Two wing mechanisms loaded and ready' : 'Wing mechanism loaded and ready'
         }
       },
       undefined,
@@ -184,14 +189,27 @@ async function initializeModelViewport() {
     )
   }
 
-  Object.entries(componentAssets).forEach(([componentName, component]) => {
-    loadAsset(component.assetUrl, componentName)
-  })
-  pointNames.forEach((pointName) => loadAsset(pointAssets[pointName], pointName, true))
+  wingDefinitions.forEach((definition) => {
+    const root = new THREE.Group()
+    root.position.x = definition.positionX
+    root.scale.x = definition.mirrored ? -1 : 1
+    modelGroup.add(root)
 
-  window.addEventListener('wing-slider-change', () => {
-    updatePointMarkers()
-    status.textContent = `Slider ${state.slider}: points and six components positioned from POINTS.csv`
+    const wing = { ...definition, root, pointMarkers: new Map(), components: new Map() }
+    wings.set(definition.id, wing)
+
+    Object.entries(componentAssets).forEach(([componentName, component]) => {
+      loadWingAsset(wing, component.assetUrl, componentName)
+    })
+    pointNames.forEach((pointName) => loadWingAsset(wing, pointAssets[pointName], pointName, true))
+  })
+
+  window.addEventListener('wing-slider-change', (event) => {
+    const wing = wings.get(event.detail)
+    if (!wing) return
+
+    updateWing(wing)
+    status.textContent = `${wing.label} at slider ${state[wing.sliderKey]}`
   })
 
   new ResizeObserver(resize).observe(viewport)
@@ -213,7 +231,7 @@ function renderDataOutput() {
     <div class="data-card">
       <div class="data-header">
         <span>Wing points</span>
-        <span>Slider ${state.slider}</span>
+        <span>Slider ${state.leftSlider}</span>
       </div>
       <pre>POINTS.csv drives P0, P1, S01, H02, H13, H23, H24, H35, and H45.</pre>
     </div>
@@ -225,20 +243,24 @@ function renderControls() {
   if (!controls) return
 
   controls.innerHTML = `
-    <label class="slider-card" for="wing-slider">
+    <label class="slider-card" for="left-wing-slider">
       <div class="slider-header">
         <span>Wing extension</span>
-        <strong id="wing-slider-value">${state.slider}</strong>
+        <strong id="left-wing-slider-value">${state.leftSlider}</strong>
       </div>
-      <input id="wing-slider" type="range" min="0" max="75" step="1" value="${state.slider}" />
+      <input id="left-wing-slider" type="range" min="0" max="75" step="1" value="${state.leftSlider}" />
     </label>
   `
 
-  document.querySelector('#wing-slider').addEventListener('input', (event) => {
-    state.slider = Number(event.target.value)
-    document.querySelector('#wing-slider-value').textContent = String(state.slider)
-    renderDataOutput()
-    window.dispatchEvent(new Event('wing-slider-change'))
+  const visibleWings = showSecondWing ? [['left', 'leftSlider'], ['right', 'rightSlider']] : [['left', 'leftSlider']]
+
+  visibleWings.forEach(([wingId, sliderKey]) => {
+    document.querySelector(`#${wingId}-wing-slider`).addEventListener('input', (event) => {
+      state[sliderKey] = Number(event.target.value)
+      document.querySelector(`#${wingId}-wing-slider-value`).textContent = String(state[sliderKey])
+      renderDataOutput()
+      window.dispatchEvent(new CustomEvent('wing-slider-change', { detail: wingId }))
+    })
   })
 }
 
@@ -271,13 +293,6 @@ document.querySelector('#app').innerHTML = `
       </div>
     </main>
 
-    <aside class="panel data-panel">
-      <div class="panel-header">
-        <p class="eyebrow">Input arrays</p>
-        <h2>Point Positions</h2>
-      </div>
-      <div id="data-output"></div>
-    </aside>
   </div>
 `
 
