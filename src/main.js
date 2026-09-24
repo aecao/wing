@@ -191,7 +191,7 @@ async function initializeModelViewport() {
   if (!viewport || !status) return
 
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color('#07111f')
+  scene.background = new THREE.Color('#d1d1d1')
 
   const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100000)
   const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -452,7 +452,6 @@ document.querySelector('#app').innerHTML = `
   <div class="app-shell">
     <aside class="panel controls-panel">
       <div class="panel-header">
-        <p class="eyebrow">Simulation</p>
         <h2>Mechanism Controls</h2>
       </div>
       <div id="controls"></div>
@@ -461,8 +460,7 @@ document.querySelector('#app').innerHTML = `
     <main class="panel viewport-panel">
       <div class="viewport-toolbar">
         <div>
-          <p class="eyebrow">VR prototype</p>
-          <h1>Hinge Motion Lab</h1>
+          <h1>Viewport</h1>
         </div>
         <div class="badge">0–75</div>
       </div>

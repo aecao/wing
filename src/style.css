@@ -156,7 +156,7 @@ input[type='range'] {
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid #333333;
-  background: #0c0c0c;
+  background: #d1d1d1;
 }
 
 #model-viewport {
