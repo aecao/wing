@@ -101,6 +101,46 @@ function buildShadeEdges(points) {
   })
 }
 
+function buildLongitudinalShadeEdges(points) {
+  const planes = new Map()
+
+  points.forEach((point, index) => {
+    const planeKey = point.x.toFixed(4)
+    if (!planes.has(planeKey)) planes.set(planeKey, [])
+    planes.get(planeKey).push({ point, index })
+  })
+
+  const buildZigzagOrder = (planePoints) => {
+    const zLayers = new Map()
+
+    planePoints.forEach((point) => {
+      const zKey = point.point.z.toFixed(4)
+      if (!zLayers.has(zKey)) zLayers.set(zKey, [])
+      zLayers.get(zKey).push(point)
+    })
+
+    return Array.from(zLayers.values())
+      .sort((first, second) => first[0].point.z - second[0].point.z)
+      .flatMap((layer, index) => {
+        layer.sort((first, second) => first.point.y - second.point.y)
+        return index % 2 === 0 ? layer : layer.reverse()
+      })
+  }
+
+  return Array.from(planes.values())
+    .filter((planePoints) => planePoints.length > 1)
+    .map((planePoints) => {
+      const zigzagPoints = buildZigzagOrder(planePoints)
+      return {
+        count: planePoints.length,
+        points: zigzagPoints.slice(0, 18),
+      }
+    })
+    .sort((first, second) => second.count - first.count)
+    .slice(0, 2)
+    .flatMap(({ points: linePoints }) => linePoints.slice(1).map((point, index) => [linePoints[index].index, point.index]))
+}
+
 function findShadeAttachmentEdge(edges, points, anchorPoint) {
   return edges.reduce((closest, edge) => {
     const [startIndex, endIndex] = edge
@@ -219,8 +259,10 @@ async function initializeModelViewport() {
   axisGizmo.position.set(-1.4, -1.4, 0)
   modelGroup.add(axisGizmo)
   const referenceShadePoints = shadeStates.get('75-75')
-  const shadeEdges = buildShadeEdges(referenceShadePoints)
-  const shadeAttachmentEdge = findShadeAttachmentEdge(shadeEdges, referenceShadePoints, referencePoints.H35)
+  const transverseShadeEdges = buildShadeEdges(referenceShadePoints)
+  const longitudinalShadeEdges = buildLongitudinalShadeEdges(referenceShadePoints)
+  const shadeEdges = [...transverseShadeEdges, ...longitudinalShadeEdges]
+  const shadeAttachmentEdge = findShadeAttachmentEdge(transverseShadeEdges, referenceShadePoints, referencePoints.H35)
   const shadeGeometry = new THREE.BufferGeometry()
   const shadeMaterial = new THREE.LineBasicMaterial({ color: '#e53935' })
   const shade = new THREE.LineSegments(shadeGeometry, shadeMaterial)
