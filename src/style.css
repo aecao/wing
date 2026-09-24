@@ -19,9 +19,8 @@ body {
   margin: 0;
   min-height: 100vh;
   min-width: 320px;
-  background-color: #080808;
-  background-image: linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-  background-size: 32px 32px;
+  overflow: hidden;
+  background: #d1d1d1;
 }
 
 button,
@@ -30,18 +29,14 @@ input {
 }
 
 #app {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
+  width: 100vw;
+  height: 100vh;
 }
 
 .app-shell {
-  width: min(1500px, 100%);
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 24px;
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .panel {
@@ -52,13 +47,12 @@ input {
   backdrop-filter: blur(14px);
 }
 
-.controls-panel,
-.data-panel {
-  padding: 22px;
-}
-
 .panel-header {
-  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
 }
 
 .eyebrow {
@@ -87,7 +81,7 @@ h2 {
 
 #controls {
   display: grid;
-  gap: 16px;
+  gap: 10px;
 }
 
 .slider-card {
@@ -95,7 +89,7 @@ h2 {
   background: #202020;
   border: 1px solid #3b3b3b;
   border-radius: 6px;
-  padding: 14px 14px 12px;
+  padding: 11px 12px;
 }
 
 .slider-header {
@@ -124,18 +118,12 @@ input[type='range'] {
   width: 100%;
   accent-color: #d71920;
   margin: 0;
+  touch-action: none;
 }
 
 .viewport-panel {
-  padding: 20px 20px 18px;
-}
-
-.viewport-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 18px;
-  gap: 18px;
+  position: absolute;
+  inset: 0;
 }
 
 .badge {
@@ -153,16 +141,16 @@ input[type='range'] {
 
 .viewport-frame {
   position: relative;
-  border-radius: 8px;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  border: 1px solid #333333;
   background: #d1d1d1;
 }
 
 #model-viewport {
   display: block;
   width: 100%;
-  height: 620px;
+  height: 100%;
 }
 
 #model-viewport canvas {
@@ -173,8 +161,8 @@ input[type='range'] {
 
 .model-status {
   position: absolute;
-  left: 16px;
-  bottom: 12px;
+  right: 16px;
+  top: 16px;
   margin: 0;
   padding: 6px 10px;
   border: 1px solid #7f1d1d;
@@ -182,6 +170,16 @@ input[type='range'] {
   background: rgba(10, 10, 10, 0.9);
   color: #ff6b64;
   font-size: 0.75rem;
+}
+
+.controls-panel {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 2;
+  width: min(380px, calc(100vw - 40px));
+  padding: 14px;
+  background: rgba(20, 20, 20, 0.92);
 }
 
 #data-output {
@@ -221,23 +219,18 @@ pre {
 }
 
 @media (max-width: 1100px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
+  .controls-panel { width: min(440px, calc(100vw - 40px)); }
 }
 
 @media (max-width: 640px) {
-  #app {
-    padding: 16px;
+  .controls-panel {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    padding: 12px;
   }
 
-  .controls-panel,
-  .data-panel,
-  .viewport-panel {
-    padding: 16px;
-  }
-
-  #model-viewport {
-    height: 440px;
-  }
+  .slider-card { padding: 10px 12px; }
+  .model-status { top: 12px; right: 12px; }
 }

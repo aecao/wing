@@ -450,25 +450,20 @@ function updateAll() {
 
 document.querySelector('#app').innerHTML = `
   <div class="app-shell">
-    <aside class="panel controls-panel">
-      <div class="panel-header">
-        <h2>Mechanism Controls</h2>
-      </div>
-      <div id="controls"></div>
-    </aside>
-
-    <main class="panel viewport-panel">
-      <div class="viewport-toolbar">
-        <div>
-          <h1>Viewport</h1>
-        </div>
-        <div class="badge">0–75</div>
-      </div>
+    <main class="viewport-panel">
       <div class="viewport-frame">
         <div id="model-viewport" aria-label="3D preview of exported Rhino mechanism components"></div>
         <p id="model-status" class="model-status">Loading Rhino components...</p>
       </div>
     </main>
+
+    <aside class="panel controls-panel" aria-label="Mechanism controls">
+      <div class="panel-header">
+        <h2>Wing Controls</h2>
+        <div class="badge">0-75</div>
+      </div>
+      <div id="controls"></div>
+    </aside>
 
   </div>
 `
