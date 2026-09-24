@@ -415,16 +415,16 @@ function renderControls() {
   controls.innerHTML = `
     <label class="slider-card" for="left-wing-slider">
       <div class="slider-header">
-        <span>Wing extension</span>
-        <strong id="left-wing-slider-value">${state.leftSlider}</strong>
+        <span>Wing 1 Extension</span>
+        <input id="left-wing-slider-value" class="slider-value-input" type="number" min="0" max="75" step="1" value="${state.leftSlider}" aria-label="Wing 1 extension value" />
       </div>
       <input id="left-wing-slider" type="range" min="0" max="75" step="1" value="${state.leftSlider}" />
     </label>
     ${showSecondWing ? `
       <label class="slider-card" for="right-wing-slider">
         <div class="slider-header">
-          <span>Right wing extension</span>
-          <strong id="right-wing-slider-value">${state.rightSlider}</strong>
+          <span>Wing 2 Extension</span>
+          <input id="right-wing-slider-value" class="slider-value-input" type="number" min="0" max="75" step="1" value="${state.rightSlider}" aria-label="Wing 2 extension value" />
         </div>
         <input id="right-wing-slider" type="range" min="0" max="75" step="1" value="${state.rightSlider}" />
       </label>
@@ -434,11 +434,21 @@ function renderControls() {
   const visibleWings = showSecondWing ? [['left', 'leftSlider'], ['right', 'rightSlider']] : [['left', 'leftSlider']]
 
   visibleWings.forEach(([wingId, sliderKey]) => {
-    document.querySelector(`#${wingId}-wing-slider`).addEventListener('input', (event) => {
-      state[sliderKey] = Number(event.target.value)
-      document.querySelector(`#${wingId}-wing-slider-value`).textContent = String(state[sliderKey])
+    const slider = document.querySelector(`#${wingId}-wing-slider`)
+    const valueInput = document.querySelector(`#${wingId}-wing-slider-value`)
+
+    const setSliderValue = (value) => {
+      state[sliderKey] = Math.min(75, Math.max(0, Math.round(value)))
+      slider.value = String(state[sliderKey])
+      valueInput.value = String(state[sliderKey])
       renderDataOutput()
       window.dispatchEvent(new CustomEvent('wing-slider-change', { detail: wingId }))
+    }
+
+    slider.addEventListener('input', (event) => setSliderValue(Number(event.target.value)))
+    valueInput.addEventListener('change', () => setSliderValue(Number(valueInput.value)))
+    valueInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') valueInput.blur()
     })
   })
 }
@@ -453,7 +463,7 @@ document.querySelector('#app').innerHTML = `
     <main class="viewport-panel">
       <div class="viewport-frame">
         <div id="model-viewport" aria-label="3D preview of exported Rhino mechanism components"></div>
-        <p id="model-status" class="model-status">Loading Rhino components...</p>
+        <p id="model-status" class="sr-only" aria-live="polite">Loading wing mechanism</p>
       </div>
     </main>
 
