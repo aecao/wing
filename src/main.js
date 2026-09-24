@@ -1,167 +1,249 @@
 import './style.css'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import c0Url from './assets/C0.glb?url'
+import r1Url from './assets/R1.glb?url'
+import r2Url from './assets/R2.glb?url'
+import r3Url from './assets/R3.glb?url'
+import r4Url from './assets/R4.glb?url'
+import r5Url from './assets/R5.glb?url'
+import p0Url from './assets/P0.glb?url'
+import p1Url from './assets/P1.glb?url'
+import s01Url from './assets/S01.glb?url'
+import h02Url from './assets/H02.glb?url'
+import h13Url from './assets/H13.glb?url'
+import h23Url from './assets/H23.glb?url'
+import h24Url from './assets/H24.glb?url'
+import h35Url from './assets/H35.glb?url'
+import h45Url from './assets/H45.glb?url'
 
-const mechanismConfig = [
-  {
-    id: 'hinge-a',
-    name: 'Hinge A',
-    color: '#7dd3fc',
-    anchorX: 170,
-    anchorY: 220,
-    points: 6,
-    length: 160,
-    amplitude: 48,
-    sway: 28,
-    phase: 0.4,
-    verticalLift: 26,
-    drift: 1.1,
-  },
-  {
-    id: 'hinge-b',
-    name: 'Hinge B',
-    color: '#a78bfa',
-    anchorX: 470,
-    anchorY: 345,
-    points: 7,
-    length: 180,
-    amplitude: 42,
-    sway: 38,
-    phase: 1.2,
-    verticalLift: 30,
-    drift: 1.35,
-  },
-  {
-    id: 'hinge-c',
-    name: 'Hinge C',
-    color: '#f9a8d4',
-    anchorX: 760,
-    anchorY: 220,
-    points: 5,
-    length: 150,
-    amplitude: 52,
-    sway: 24,
-    phase: 2.1,
-    verticalLift: 24,
-    drift: 1.8,
-  },
-]
+const componentAssets = {
+  C0: { assetUrl: c0Url, points: ['P0', 'H02'] },
+  R1: { assetUrl: r1Url, points: ['P1', 'H13'] },
+  R2: { assetUrl: r2Url, points: ['H02', 'H24'] },
+  R3: { assetUrl: r3Url, points: ['H13', 'H35'] },
+  R4: { assetUrl: r4Url, points: ['H24', 'H45'] },
+  R5: { assetUrl: r5Url, points: ['H35', 'H45'] },
+}
+const pointAssets = {
+  P0: p0Url,
+  P1: p1Url,
+  S01: s01Url,
+  H02: h02Url,
+  H13: h13Url,
+  H23: h23Url,
+  H24: h24Url,
+  H35: h35Url,
+  H45: h45Url,
+}
+const pointNames = Object.keys(pointAssets)
+const state = { slider: 75 }
+const rhinoFeetToMeters = 0.3048
 
-const state = Object.fromEntries(mechanismConfig.map((mechanism) => [mechanism.id, 0]))
+function parsePointCsv(csvText) {
+  const rows = new Map()
 
-function buildPointArray(mechanism, sliderValue) {
-  const t = sliderValue / 75
-  const points = []
+  csvText.trim().split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*(\d+)\s*,\s*"?([A-Za-z0-9]+)\{\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^}]+)\}"?\s*$/)
+    if (!match) return
 
-  for (let index = 0; index < mechanism.points; index += 1) {
-    const normalized = mechanism.points === 1 ? 0 : index / (mechanism.points - 1)
-    const spread = normalized * mechanism.length
-    const bend = Math.sin(normalized * Math.PI * 1.7 + mechanism.phase + t * mechanism.drift) * mechanism.amplitude
-    const twist = Math.cos(normalized * Math.PI * 2.15 - mechanism.phase + t * (mechanism.drift * 1.25)) * mechanism.sway
-    const x = mechanism.anchorX + spread + twist
-    const y = mechanism.anchorY + bend + (normalized - 0.5) * mechanism.verticalLift * 2
+    const [, slider, point, x, y, z] = match
+    if (!rows.has(Number(slider))) rows.set(Number(slider), {})
+    rows.get(Number(slider))[point] = new THREE.Vector3(
+      Number(x) * rhinoFeetToMeters,
+      Number(z) * rhinoFeetToMeters,
+      Number(y) * rhinoFeetToMeters,
+    )
+  })
 
-    points.push([Number(x.toFixed(2)), Number(y.toFixed(2))])
-  }
-
-  return points
+  return rows
 }
 
-function renderViewport() {
-  const viewport = document.querySelector('#mechanism-viewport')
-  if (!viewport) return
+async function initializeModelViewport() {
+  const viewport = document.querySelector('#model-viewport')
+  const status = document.querySelector('#model-status')
+  if (!viewport || !status) return
 
-  const groups = mechanismConfig
-    .map((mechanism) => {
-      const points = buildPointArray(mechanism, state[mechanism.id])
-      const segments = points
-        .slice(1)
-        .map((point, index) => {
-          const start = points[index]
-          return `<line x1="${start[0]}" y1="${start[1]}" x2="${point[0]}" y2="${point[1]}" stroke="${mechanism.color}" stroke-width="8" stroke-linecap="round" opacity="${0.95 - index * 0.1}" />`
-        })
-        .join('')
+  const scene = new THREE.Scene()
+  scene.background = new THREE.Color('#07111f')
 
-      const nodes = points
-        .map((point, index) => {
-          const radius = index === 0 ? 9 : 6
-          const fill = index === 0 ? '#f8fafc' : '#fef3c7'
-          return `<circle cx="${point[0]}" cy="${point[1]}" r="${radius}" fill="${fill}" stroke="${mechanism.color}" stroke-width="2" />`
-        })
-        .join('')
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100000)
+  const renderer = new THREE.WebGLRenderer({ antialias: true })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  viewport.append(renderer.domElement)
 
-      const label = `<text x="${points[0][0] + 18}" y="${points[0][1] - 16}" fill="${mechanism.color}" font-size="16" font-weight="700">${mechanism.name}</text>`
+  const controls = new OrbitControls(camera, renderer.domElement)
+  controls.enableDamping = true
 
-      return `<g>${segments}${nodes}${label}</g>`
+  scene.add(new THREE.HemisphereLight('#dbeafe', '#0b1220', 2.4))
+  const keyLight = new THREE.DirectionalLight('#ffffff', 3)
+  keyLight.position.set(4, 8, 6)
+  scene.add(keyLight)
+
+  const modelGroup = new THREE.Group()
+  scene.add(modelGroup)
+
+  const resize = () => {
+    const { width, height } = viewport.getBoundingClientRect()
+    camera.aspect = width / height
+    camera.updateProjectionMatrix()
+    renderer.setSize(width, height, false)
+  }
+
+  const frameModel = () => {
+    const bounds = new THREE.Box3().setFromObject(modelGroup)
+    const size = bounds.getSize(new THREE.Vector3())
+    const center = bounds.getCenter(new THREE.Vector3())
+    const largestDimension = Math.max(size.x, size.y, size.z)
+    const distance = largestDimension / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)))
+
+    modelGroup.position.sub(center)
+    camera.position.set(0, 0, distance * 1.35)
+    camera.near = Math.max(largestDimension / 1000, 0.01)
+    camera.far = Math.max(largestDimension * 100, 1000)
+    camera.updateProjectionMatrix()
+    controls.target.set(0, 0, 0)
+    controls.update()
+  }
+
+  const pointDataResponse = await fetch(`${import.meta.env.BASE_URL}data/POINTS.csv`)
+  if (!pointDataResponse.ok) {
+    status.textContent = 'Could not load public/data/POINTS.csv'
+    return
+  }
+
+  const pointRows = parsePointCsv(await pointDataResponse.text())
+  const referencePoints = pointRows.get(75)
+  if (!referencePoints || pointNames.some((pointName) => !referencePoints[pointName])) {
+    status.textContent = 'POINTS.csv needs all nine points at slider 75'
+    return
+  }
+
+  const loader = new GLTFLoader()
+  const pointMarkers = new Map()
+  const components = new Map()
+  let loadedAssets = 0
+  const totalAssets = Object.keys(componentAssets).length + pointNames.length
+
+  const updatePointMarkers = () => {
+    const activePoints = pointRows.get(state.slider)
+    if (!activePoints) return
+
+    pointMarkers.forEach((marker, pointName) => {
+      marker.position.copy(activePoints[pointName]).sub(referencePoints[pointName])
     })
-    .join('')
 
-  viewport.innerHTML = `
-    <defs>
-      <linearGradient id="stageGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#0f172a" />
-        <stop offset="100%" stop-color="#111827" />
-      </linearGradient>
-    </defs>
-    <rect x="0" y="0" width="960" height="620" fill="url(#stageGlow)" rx="30" stroke="rgba(148,163,184,0.3)" />
-    <g opacity="0.18">
-      <path d="M120 100 L840 100 M120 220 L840 220 M120 340 L840 340 M120 460 L840 460" stroke="#94a3b8" stroke-width="1" fill="none"/>
-      <path d="M200 60 L200 540 M400 60 L400 540 M600 60 L600 540 M800 60 L800 540" stroke="#94a3b8" stroke-width="1" fill="none"/>
-    </g>
-    ${groups}
-  `
+    components.forEach((component, componentName) => {
+      const [startPointName, endPointName] = componentAssets[componentName].points
+      const referenceStart = referencePoints[startPointName]
+      const referenceEnd = referencePoints[endPointName]
+      const activeStart = activePoints[startPointName]
+      const activeEnd = activePoints[endPointName]
+      const referenceDirection = referenceEnd.clone().sub(referenceStart).normalize()
+      const activeDirection = activeEnd.clone().sub(activeStart).normalize()
+      const rotation = new THREE.Quaternion().setFromUnitVectors(referenceDirection, activeDirection)
+
+      component.scene.quaternion.copy(rotation).multiply(component.baseQuaternion)
+      component.scene.position.copy(component.basePosition).sub(referenceStart).applyQuaternion(rotation).add(activeStart)
+    })
+  }
+
+  const loadAsset = (assetUrl, assetName, isPointMarker = false) => {
+    loader.load(
+      assetUrl,
+      (gltf) => {
+        gltf.scene.traverse((node) => {
+          if (node.isMesh) {
+            node.castShadow = true
+            node.receiveShadow = true
+          }
+        })
+        modelGroup.add(gltf.scene)
+        if (isPointMarker) pointMarkers.set(assetName, gltf.scene)
+        else {
+          components.set(assetName, {
+            scene: gltf.scene,
+            basePosition: gltf.scene.position.clone(),
+            baseQuaternion: gltf.scene.quaternion.clone(),
+          })
+        }
+        loadedAssets += 1
+        status.textContent = `Loaded ${loadedAssets} of ${totalAssets} GLB assets`
+        if (loadedAssets === totalAssets) {
+          updatePointMarkers()
+          frameModel()
+          status.textContent = `Slider ${state.slider}: six components and nine point markers loaded`
+        }
+      },
+      undefined,
+      () => {
+        status.textContent = 'A component could not be loaded'
+      },
+    )
+  }
+
+  Object.entries(componentAssets).forEach(([componentName, component]) => {
+    loadAsset(component.assetUrl, componentName)
+  })
+  pointNames.forEach((pointName) => loadAsset(pointAssets[pointName], pointName, true))
+
+  window.addEventListener('wing-slider-change', () => {
+    updatePointMarkers()
+    status.textContent = `Slider ${state.slider}: points and six components positioned from POINTS.csv`
+  })
+
+  new ResizeObserver(resize).observe(viewport)
+  resize()
+
+  const render = () => {
+    controls.update()
+    renderer.render(scene, camera)
+    requestAnimationFrame(render)
+  }
+  render()
 }
 
 function renderDataOutput() {
   const output = document.querySelector('#data-output')
   if (!output) return
 
-  output.innerHTML = mechanismConfig
-    .map((mechanism) => {
-      const points = buildPointArray(mechanism, state[mechanism.id])
-      return `
-        <div class="data-card">
-          <div class="data-header">
-            <span>${mechanism.name}</span>
-            <span>Slider ${state[mechanism.id]}</span>
-          </div>
-          <pre>${JSON.stringify(points, null, 2)}</pre>
-        </div>
-      `
-    })
-    .join('')
+  output.innerHTML = `
+    <div class="data-card">
+      <div class="data-header">
+        <span>Wing points</span>
+        <span>Slider ${state.slider}</span>
+      </div>
+      <pre>POINTS.csv drives P0, P1, S01, H02, H13, H23, H24, H35, and H45.</pre>
+    </div>
+  `
 }
 
 function renderControls() {
   const controls = document.querySelector('#controls')
   if (!controls) return
 
-  controls.innerHTML = mechanismConfig
-    .map(
-      (mechanism) => `
-        <label class="slider-card" for="slider-${mechanism.id}">
-          <div class="slider-header">
-            <span>${mechanism.name}</span>
-            <strong id="value-${mechanism.id}">${state[mechanism.id]}</strong>
-          </div>
-          <input id="slider-${mechanism.id}" type="range" min="0" max="75" step="1" value="${state[mechanism.id]}" />
-        </label>
-      `
-    )
-    .join('')
+  controls.innerHTML = `
+    <label class="slider-card" for="wing-slider">
+      <div class="slider-header">
+        <span>Wing extension</span>
+        <strong id="wing-slider-value">${state.slider}</strong>
+      </div>
+      <input id="wing-slider" type="range" min="0" max="75" step="1" value="${state.slider}" />
+    </label>
+  `
 
-  mechanismConfig.forEach((mechanism) => {
-    const input = document.querySelector(`#slider-${mechanism.id}`)
-    input.addEventListener('input', (event) => {
-      state[mechanism.id] = Number(event.target.value)
-      document.querySelector(`#value-${mechanism.id}`).textContent = String(state[mechanism.id])
-      renderViewport()
-      renderDataOutput()
-    })
+  document.querySelector('#wing-slider').addEventListener('input', (event) => {
+    state.slider = Number(event.target.value)
+    document.querySelector('#wing-slider-value').textContent = String(state.slider)
+    renderDataOutput()
+    window.dispatchEvent(new Event('wing-slider-change'))
   })
 }
 
 function updateAll() {
   renderControls()
-  renderViewport()
   renderDataOutput()
 }
 
@@ -184,7 +266,8 @@ document.querySelector('#app').innerHTML = `
         <div class="badge">0–75</div>
       </div>
       <div class="viewport-frame">
-        <svg id="mechanism-viewport" viewBox="0 0 960 620" aria-label="Multi-link hinge mechanism simulation"></svg>
+        <div id="model-viewport" aria-label="3D preview of exported Rhino mechanism components"></div>
+        <p id="model-status" class="model-status">Loading Rhino components...</p>
       </div>
     </main>
 
@@ -198,4 +281,5 @@ document.querySelector('#app').innerHTML = `
   </div>
 `
 
+initializeModelViewport()
 updateAll()
