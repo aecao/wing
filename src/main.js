@@ -40,7 +40,7 @@ const pointAssets = {
 const pointNames = Object.keys(pointAssets)
 const state = { leftSlider: 75, rightSlider: 75 }
 const rhinoFeetToMeters = 0.3048
-const showSecondWing = false
+const showSecondWing = true
 
 function parsePointCsv(csvText) {
   const rows = new Map()
@@ -59,6 +59,90 @@ function parsePointCsv(csvText) {
   })
 
   return rows
+}
+
+function parseShadeCsv(csvText) {
+  const [header, ...lines] = csvText.trim().split(/\r?\n/)
+  const columns = header.split(',')
+  const columnIndex = Object.fromEntries(columns.map((column, index) => [column, index]))
+  const states = new Map()
+
+  lines.forEach((line) => {
+    const values = line.split(',')
+    const leftSlider = Number(values[columnIndex['in:wing1']])
+    const rightSlider = Number(values[columnIndex['in:wing2']])
+    const points = Array.from({ length: 37 }, (_, index) => {
+      const pointNumber = index + 1
+      return new THREE.Vector3(
+        Number(values[columnIndex[`x${pointNumber}`]]) * rhinoFeetToMeters,
+        Number(values[columnIndex[`z${pointNumber}`]]) * rhinoFeetToMeters,
+        Number(values[columnIndex[`y${pointNumber}`]]) * rhinoFeetToMeters,
+      )
+    })
+
+    states.set(`${leftSlider}-${rightSlider}`, points)
+  })
+
+  return states
+}
+
+function buildShadeEdges(points) {
+  const planes = new Map()
+
+  points.forEach((point, index) => {
+    const planeKey = point.z.toFixed(4)
+    if (!planes.has(planeKey)) planes.set(planeKey, [])
+    planes.get(planeKey).push({ point, index })
+  })
+
+  return Array.from(planes.values()).flatMap((planePoints) => {
+    planePoints.sort((first, second) => first.point.x - second.point.x || first.point.y - second.point.y)
+    return planePoints.slice(1).map((point, index) => [planePoints[index].index, point.index])
+  })
+}
+
+function findShadeAttachmentEdge(edges, points, anchorPoint) {
+  return edges.reduce((closest, edge) => {
+    const [startIndex, endIndex] = edge
+    const distance = Math.min(points[startIndex].distanceTo(anchorPoint), points[endIndex].distanceTo(anchorPoint))
+    return distance < closest.distance ? { edge, distance } : closest
+  }, { edge: edges[0], distance: Infinity }).edge
+}
+
+function createAxisLabel(text, color) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 96
+  canvas.height = 96
+  const context = canvas.getContext('2d')
+  context.clearRect(0, 0, canvas.width, canvas.height)
+  context.fillStyle = color
+  context.font = 'bold 52px Helvetica Neue, Helvetica, sans-serif'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText(text, 48, 50)
+
+  const material = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false })
+  const label = new THREE.Sprite(material)
+  label.scale.set(0.22, 0.22, 1)
+  return label
+}
+
+function createAxisGizmo() {
+  const gizmo = new THREE.Group()
+  const axes = [
+    { label: 'X', direction: new THREE.Vector3(1, 0, 0), color: '#ef4444' },
+    { label: 'Y', direction: new THREE.Vector3(0, 1, 0), color: '#22c55e' },
+    { label: 'Z', direction: new THREE.Vector3(0, 0, 1), color: '#3b82f6' },
+  ]
+
+  axes.forEach(({ label, direction, color }) => {
+    gizmo.add(new THREE.ArrowHelper(direction, new THREE.Vector3(), 0.45, color, 0.1, 0.06))
+    const axisLabel = createAxisLabel(label, color)
+    axisLabel.position.copy(direction).multiplyScalar(0.56)
+    gizmo.add(axisLabel)
+  })
+
+  return gizmo
 }
 
 async function initializeModelViewport() {
@@ -116,6 +200,13 @@ async function initializeModelViewport() {
   }
 
   const pointRows = parsePointCsv(await pointDataResponse.text())
+  const shadeDataResponse = await fetch(`${import.meta.env.BASE_URL}data/range%20of%20fold%20points.csv`)
+  if (!shadeDataResponse.ok) {
+    status.textContent = 'Could not load fold point data'
+    return
+  }
+
+  const shadeStates = parseShadeCsv(await shadeDataResponse.text())
   const referencePoints = pointRows.get(75)
   if (!referencePoints || pointNames.some((pointName) => !referencePoints[pointName])) {
     status.textContent = 'POINTS.csv needs all nine points at slider 75'
@@ -124,10 +215,20 @@ async function initializeModelViewport() {
 
   const loader = new GLTFLoader()
   const wings = new Map()
+  const axisGizmo = createAxisGizmo()
+  axisGizmo.position.set(-1.4, -1.4, 0)
+  modelGroup.add(axisGizmo)
+  const referenceShadePoints = shadeStates.get('75-75')
+  const shadeEdges = buildShadeEdges(referenceShadePoints)
+  const shadeAttachmentEdge = findShadeAttachmentEdge(shadeEdges, referenceShadePoints, referencePoints.H35)
+  const shadeGeometry = new THREE.BufferGeometry()
+  const shadeMaterial = new THREE.LineBasicMaterial({ color: '#e53935' })
+  const shade = new THREE.LineSegments(shadeGeometry, shadeMaterial)
+  modelGroup.add(shade)
   let loadedAssets = 0
   const wingDefinitions = [
-    { id: 'left', label: 'Wing', sliderKey: 'leftSlider', positionX: showSecondWing ? -2.5 : 0, mirrored: false },
-    ...(showSecondWing ? [{ id: 'right', label: 'Right wing', sliderKey: 'rightSlider', positionX: 2.5, mirrored: true }] : []),
+    { id: 'left', label: 'Wing', sliderKey: 'leftSlider', positionZ: 0 },
+    ...(showSecondWing ? [{ id: 'right', label: 'Right wing', sliderKey: 'rightSlider', positionZ: 7 * rhinoFeetToMeters }] : []),
   ]
   const assetsPerWing = Object.keys(componentAssets).length + pointNames.length
   const totalAssets = assetsPerWing * wingDefinitions.length
@@ -155,6 +256,32 @@ async function initializeModelViewport() {
     })
   }
 
+  const updateShade = () => {
+    const points = shadeStates.get(`${state.leftSlider}-${state.rightSlider}`)
+    const wingPoints = pointRows.get(state.leftSlider)
+    if (!points || !wingPoints) return
+
+    const vertices = new Float32Array(shadeEdges.length * 6)
+    shadeEdges.forEach(([startIndex, endIndex], edgeIndex) => {
+      const start = points[startIndex]
+      const end = points[endIndex]
+      const offset = edgeIndex * 6
+      vertices.set([start.x, start.y, start.z, end.x, end.y, end.z], offset)
+    })
+    shadeGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3))
+    shadeGeometry.computeBoundingSphere()
+
+    const [startIndex, endIndex] = shadeAttachmentEdge
+    const sourceStart = points[startIndex]
+    const sourceEnd = points[endIndex]
+    const sourceDirection = sourceEnd.clone().sub(sourceStart).normalize()
+    const targetDirection = wingPoints.H45.clone().sub(wingPoints.H35).normalize()
+    const rotation = new THREE.Quaternion().setFromUnitVectors(sourceDirection, targetDirection)
+
+    shade.quaternion.copy(rotation)
+    shade.position.copy(wingPoints.H35).sub(sourceStart.clone().applyQuaternion(rotation))
+  }
+
   const loadWingAsset = (wing, assetUrl, assetName, isPointMarker = false) => {
     loader.load(
       assetUrl,
@@ -178,6 +305,7 @@ async function initializeModelViewport() {
         status.textContent = `Loaded ${loadedAssets} of ${totalAssets} GLB assets`
         if (loadedAssets === totalAssets) {
           wings.forEach(updateWing)
+          updateShade()
           frameModel()
           status.textContent = showSecondWing ? 'Two wing mechanisms loaded and ready' : 'Wing mechanism loaded and ready'
         }
@@ -191,8 +319,7 @@ async function initializeModelViewport() {
 
   wingDefinitions.forEach((definition) => {
     const root = new THREE.Group()
-    root.position.x = definition.positionX
-    root.scale.x = definition.mirrored ? -1 : 1
+    root.position.z = definition.positionZ
     modelGroup.add(root)
 
     const wing = { ...definition, root, pointMarkers: new Map(), components: new Map() }
@@ -209,6 +336,7 @@ async function initializeModelViewport() {
     if (!wing) return
 
     updateWing(wing)
+    updateShade()
     status.textContent = `${wing.label} at slider ${state[wing.sliderKey]}`
   })
 
@@ -250,6 +378,15 @@ function renderControls() {
       </div>
       <input id="left-wing-slider" type="range" min="0" max="75" step="1" value="${state.leftSlider}" />
     </label>
+    ${showSecondWing ? `
+      <label class="slider-card" for="right-wing-slider">
+        <div class="slider-header">
+          <span>Right wing extension</span>
+          <strong id="right-wing-slider-value">${state.rightSlider}</strong>
+        </div>
+        <input id="right-wing-slider" type="range" min="0" max="75" step="1" value="${state.rightSlider}" />
+      </label>
+    ` : ''}
   `
 
   const visibleWings = showSecondWing ? [['left', 'leftSlider'], ['right', 'rightSlider']] : [['left', 'leftSlider']]
